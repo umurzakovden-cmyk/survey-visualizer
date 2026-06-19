@@ -241,33 +241,37 @@ class SurveyDataset:
             mask = mask & part_mask
         return df.loc[mask].copy()
 
-    def distribution(
-        self,
-        df: pd.DataFrame,
-        column_name: str,
-        top_n: Optional[int] = None,
-        drop_missing: bool = False,
-    ) -> pd.Series:
-        clean_name = self.to_clean_name(column_name)
-        series = df[clean_name]
-        column = self.columns[clean_name]
-        if column.is_multiselect:
-            values: List[str] = []
-            for cell in series.dropna():
-                values.extend(self._split_multiselect(cell))
-            counts = pd.Series(values, dtype="object").value_counts()
-        else:
-            counts = series.fillna(MISSING_VALUE_TOKEN).value_counts()
-        if drop_missing and MISSING_VALUE_TOKEN in counts.index:
-            counts = counts.drop(index=MISSING_VALUE_TOKEN)
-        counts = counts.sort_values(ascending=False)
-        if top_n and len(counts) > top_n:
-            top = counts.iloc[:top_n].copy()
-            other_sum = counts.iloc[top_n:].sum()
-            if other_sum:
-                top.loc["Прочее"] = other_sum
-            counts = top
-        return counts
+def distribution(
+    self,
+    df: pd.DataFrame,
+    column_name: str,
+    top_n: Optional[int] = None,
+    drop_missing: bool = False,
+) -> pd.Series:
+    clean_name = self.to_clean_name(column_name)
+    series = df[clean_name]
+    column = self.columns[clean_name]
+    if column.is_multiselect:
+        values: List[str] = []
+        for cell in series.dropna():
+            values.extend(self._split_multiselect(cell))
+        counts = pd.Series(values, dtype="object").value_counts()
+    else:
+        counts = series.fillna(MISSING_VALUE_TOKEN).value_counts()
+    if drop_missing and MISSING_VALUE_TOKEN in counts.index:
+        counts = counts.drop(index=MISSING_VALUE_TOKEN)
+    counts = counts.sort_values(ascending=False)
+    if top_n and len(counts) > top_n:
+        top = counts.iloc[:top_n].copy()
+        other_sum = counts.iloc[top_n:].sum()
+        if other_sum:
+            other_label = "Прочее"
+            # Если такая метка уже существует, делаем её уникальной
+            if other_label in top.index:
+                other_label = "Прочее (объединено)"
+            top.loc[other_label] = other_sum
+        counts = top
+    return counts
 
     def free_text_answers(
         self,
