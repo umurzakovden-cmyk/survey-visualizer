@@ -264,7 +264,10 @@ try:
             else:
                 if percent:
                     cross = cross.div(cross.sum(axis=1), axis=0).fillna(0) * 100
-                # Явные массивы, а не DataFrame
+
+                # Рассчитываем высоту: минимум 500, плюс по 30px на каждую строку
+                height = max(500, 30 * len(cross.index) + 100)
+
                 fig = go.Figure(data=go.Heatmap(
                     z=cross.values,
                     x=cross.columns.astype(str).tolist(),
@@ -277,13 +280,15 @@ try:
                     title=f"{primary} × {secondary}",
                     xaxis_title=secondary,
                     yaxis_title=primary,
-                    xaxis_tickangle=-30,
-                    height=600,                       # ← фиксированная высота
-                    margin=dict(l=10, r=10, t=50, b=10)  # ← небольшие отступы
+                    xaxis_tickangle=-45,
+                    height=height,
+                    margin=dict(l=150, r=30, t=60, b=80),   # левый отступ для длинных подписей
                 )
-                fig.update_xaxes(automargin=True)
-                fig.update_yaxes(automargin=True)
-                st.plotly_chart(fig, use_container_width=True)
+                fig.update_xaxes(automargin=True, tickfont=dict(size=9))
+                fig.update_yaxes(automargin=True, tickfont=dict(size=9))
+
+                # Принудительно задаём ширину, чтобы график не сжимался
+                st.plotly_chart(fig, use_container_width=False, width=900)
 
 except Exception as e:
     # Показываем полную трассировку
