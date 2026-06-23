@@ -328,6 +328,12 @@ class SurveyDataset:
                 .index[:top_n_cols]
             )
             table = table.loc[:, col_order]
+
+        # Защита от случайных дубликатов (после всех манипуляций)
+        if table.index.duplicated().any():
+            table = table.loc[~table.index.duplicated()]
+        if table.columns.duplicated().any():
+            table = table.loc[:, ~table.columns.duplicated()]
         return table
 
     @staticmethod
