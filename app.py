@@ -351,12 +351,13 @@ try:
                     xaxis_tickangle=-45,
                     height=height,
                     width=width,
-                    margin=dict(l=180, r=30, t=60, b=100),
+                    margin=dict(l=180, r=30, t=90, b=100),  # t=90 вместо 60
                     font=dict(size=10),
-                    hoverlabel=dict(font_size=12)
+                    hoverlabel=dict(font_size=12),
+                    title_pad=dict(t=20)   # дополнительный отступ заголовка от верха
                 )
-                fig.update_xaxes(automargin=True, tickfont=dict(size=9), title_standoff=15)
-                fig.update_yaxes(automargin=True, tickfont=dict(size=9), title_standoff=20)
+                fig.update_xaxes(automargin=True, tickfont=dict(size=9), title_standoff=25)
+                fig.update_yaxes(automargin=True, tickfont=dict(size=9), title_standoff=35)  # 35 вместо 20
 
                 st.plotly_chart(fig, use_container_width=False)
 
