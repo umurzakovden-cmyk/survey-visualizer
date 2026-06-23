@@ -277,8 +277,12 @@ try:
                     title=f"{primary} × {secondary}",
                     xaxis_title=secondary,
                     yaxis_title=primary,
-                    xaxis_tickangle=-30
+                    xaxis_tickangle=-30,
+                    height=600,                       # ← фиксированная высота
+                    margin=dict(l=10, r=10, t=50, b=10)  # ← небольшие отступы
                 )
+                fig.update_xaxes(automargin=True)
+                fig.update_yaxes(automargin=True)
                 st.plotly_chart(fig, use_container_width=True)
 
 except Exception as e:
