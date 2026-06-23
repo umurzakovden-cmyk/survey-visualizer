@@ -265,30 +265,61 @@ try:
                 if percent:
                     cross = cross.div(cross.sum(axis=1), axis=0).fillna(0) * 100
 
-                # Рассчитываем высоту: минимум 500, плюс по 30px на каждую строку
-                height = max(500, 30 * len(cross.index) + 100)
+                # ---------- Обрезаем длинные подписи ----------
+                max_label_len = 25  # символов, после которых обрезаем и добавляем "..."
 
+                def shorten(text: str) -> str:
+                    s = str(text)
+                    return s if len(s) <= max_label_len else s[:max_label_len-3] + "..."
+
+                y_labels_full = cross.index.astype(str).tolist()
+                x_labels_full = cross.columns.astype(str).tolist()
+
+                y_labels_short = [shorten(lbl) for lbl in y_labels_full]
+                x_labels_short = [shorten(lbl) for lbl in x_labels_full]
+
+                # ---------- Рассчитываем размеры ----------
+                # Базовая высота: по 30 пикселей на строку, минимум 500
+                height = max(500, 30 * len(cross.index) + 100)
+                # Ширина: по 50 пикселей на столбец, минимум 600, максимум 1600
+                width = min(1600, max(600, 50 * len(cross.columns) + 200))
+
+                # ---------- Создаём аннотированную тепловую карту ----------
                 fig = go.Figure(data=go.Heatmap(
                     z=cross.values,
-                    x=cross.columns.astype(str).tolist(),
-                    y=cross.index.astype(str).tolist(),
+                    x=x_labels_short,
+                    y=y_labels_short,
                     texttemplate="%{z:.1f}" if percent else "%{z:d}",
                     textfont={"size": 10},
-                    colorscale="Viridis"
+                    colorscale="Viridis",
+                    customdata=[[f"{row} × {col}" for col in x_labels_full] for row in y_labels_full],
+                    hovertemplate="<b>%{customdata}</b><br>Значение: %{z}<extra></extra>"
                 ))
+
                 fig.update_layout(
                     title=f"{primary} × {secondary}",
                     xaxis_title=secondary,
                     yaxis_title=primary,
                     xaxis_tickangle=-45,
                     height=height,
-                    margin=dict(l=150, r=30, t=60, b=80),   # левый отступ для длинных подписей
+                    width=width,
+                    margin=dict(l=180, r=30, t=60, b=100),
+                    font=dict(size=10),
+                    hoverlabel=dict(font_size=12)
                 )
-                fig.update_xaxes(automargin=True, tickfont=dict(size=9))
-                fig.update_yaxes(automargin=True, tickfont=dict(size=9))
 
-                # Принудительно задаём ширину, чтобы график не сжимался
-                st.plotly_chart(fig, use_container_width=False, width=900)
+                fig.update_xaxes(
+                    automargin=True,
+                    tickfont=dict(size=9),
+                    title_standoff=15
+                )
+                fig.update_yaxes(
+                    automargin=True,
+                    tickfont=dict(size=9),
+                    title_standoff=20
+                )
+
+                st.plotly_chart(fig, use_container_width=False)
 
 except Exception as e:
     # Показываем полную трассировку
