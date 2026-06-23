@@ -1,5 +1,6 @@
-import io
-import traceback
+import html as html_mod
+import tempfile
+import os
 from typing import List, Tuple
 
 import streamlit as st
@@ -20,16 +21,23 @@ st.set_page_config(
 @st.cache_data(show_spinner=False)
 def load_dataset(file_bytes, file_name, sheet_name=None):
     dataset = SurveyDataset()
-    import tempfile
     with tempfile.NamedTemporaryFile(delete=False, suffix=".tmp") as tmp:
         tmp.write(file_bytes)
         tmp_path = tmp.name
     try:
         dataset.load(tmp_path, sheet_name=sheet_name)
     finally:
-        import os
         os.unlink(tmp_path)
     return dataset
+
+
+# ---------- Инициализация session_state ----------
+if "dataset" not in st.session_state:
+    st.session_state.dataset = None
+if "filters" not in st.session_state:
+    st.session_state.filters = []
+if "filter_specs" not in st.session_state:
+    st.session_state.filter_specs = []
 
 
 # ---------- Боковая панель ----------
@@ -41,12 +49,14 @@ with st.sidebar:
     )
 
     if uploaded_file is not None:
+        # Загрузка нового файла сбрасывает всё
         if "uploaded_file_name" not in st.session_state or st.session_state.uploaded_file_name != uploaded_file.name:
             st.session_state.dataset = None
+            st.session_state.filters = []
+            st.session_state.filter_specs = []
             st.session_state.uploaded_file_name = uploaded_file.name
-            st.session_state.sheet_name = None
 
-        if st.session_state.get("dataset") is None:
+        if st.session_state.dataset is None:
             with st.spinner("Читаем файл..."):
                 try:
                     dataset = load_dataset(
@@ -62,6 +72,7 @@ with st.sidebar:
         else:
             dataset = st.session_state.dataset
 
+        # Выбор листа, если есть
         if dataset.sheet_names and len(dataset.sheet_names) > 1:
             selected_sheet = st.selectbox(
                 "Лист",
@@ -76,6 +87,8 @@ with st.sidebar:
                         dataset.switch_sheet(selected_sheet)
                         st.session_state.dataset = dataset
                         st.session_state.sheet_name = selected_sheet
+                        st.session_state.filters = []
+                        st.session_state.filter_specs = []
                     except Exception as e:
                         st.error(f"Ошибка смены листа: {e}")
         else:
@@ -92,65 +105,93 @@ with st.sidebar:
 # ---------- Основная область ----------
 st.title("📊 Визуализатор опросов")
 
-if "dataset" not in st.session_state or st.session_state.dataset is None:
+if st.session_state.dataset is None:
     st.stop()
 
 dataset = st.session_state.dataset
 display_names = dataset.get_display_names()
 
-# ---------- Фильтры ----------
+# ---------- Фильтры (с отложенным применением) ----------
 st.sidebar.header("🔍 Фильтры")
 
-if "filters" not in st.session_state:
-    st.session_state.filters = []
+# Кнопки добавления/сброса фильтров (вне формы, чтобы не отправлять её)
+col_add, col_clear = st.sidebar.columns(2)
+with col_add:
+    if st.button("➕ Добавить фильтр"):
+        st.session_state.filters.append({
+            "column": display_names[0] if display_names else None,
+            "values": []
+        })
+        st.rerun()
+with col_clear:
+    if st.button("Сбросить все"):
+        st.session_state.filters = []
+        st.session_state.filter_specs = []
+        st.rerun()
 
-def add_filter():
-    st.session_state.filters.append({
-        "column": display_names[0] if display_names else None,
-        "values": []
-    })
-
-def remove_filter(idx):
-    del st.session_state.filters[idx]
-
-st.sidebar.button("➕ Добавить фильтр", on_click=add_filter)
-
-filter_specs = []
-for i, filt in enumerate(st.session_state.filters):
-    with st.sidebar.expander(f"Фильтр {i+1}", expanded=True):
-        col1, col2 = st.columns([3, 1])
-        with col1:
+# Форма с фильтрами
+with st.sidebar.form("filters_form"):
+    for i, filt in enumerate(st.session_state.filters):
+        cols = st.columns([4, 1])
+        with cols[0]:
             if display_names:
+                current_col = filt.get("column")
+                idx = display_names.index(current_col) if current_col in display_names else 0
                 filt["column"] = st.selectbox(
                     "Вопрос",
                     display_names,
-                    index=display_names.index(filt["column"]) if filt["column"] in display_names else 0,
+                    index=idx,
                     key=f"flt_col_{i}"
                 )
             else:
                 filt["column"] = None
-        with col2:
-            st.button("❌", key=f"rm_{i}", on_click=remove_filter, args=(i,))
+        with cols[1]:
+            # Кнопка удаления этого фильтра (внутри формы, вызывает submit)
+            st.form_submit_button("❌", key=f"rm_btn_{i}")
+
         if filt["column"]:
             clean_name = dataset.to_clean_name(filt["column"])
             if clean_name in dataset.columns:
                 all_vals = dataset.get_unique_values(filt["column"])
-                valid_defaults = [v for v in filt["values"] if v in all_vals]
+                # Сохраняем выбранные значения, используя актуальный ключ
+                default = [v for v in filt.get("values", []) if v in all_vals]
                 filt["values"] = st.multiselect(
                     "Значения",
                     options=all_vals,
-                    default=valid_defaults,
-                    key=f"flt_vals_{i}",
+                    default=default,
+                    key=f"flt_vals_{i}"
                 )
-            else:
-                filt["values"] = []
-        if filt["column"] and filt["values"]:
-            filter_specs.append((filt["column"], filt["values"]))
 
-if st.session_state.filters:
-    if st.sidebar.button("Сбросить все фильтры"):
-        st.session_state.filters = []
-        st.rerun()
+    # Главная кнопка применения
+    applied = st.form_submit_button("🔍 Применить фильтры")
+
+# Обработка нажатий кнопок удаления (отдельно от главного применения)
+# Если была нажата любая кнопка удаления – удаляем фильтр и сбрасываем применённые спецификации
+any_remove = any(
+    st.session_state.get(f"rm_btn_{i}", False)
+    for i in range(len(st.session_state.filters))
+)
+if any_remove:
+    # Удаляем фильтры, у которых была нажата кнопка
+    new_filters = []
+    for i, filt in enumerate(st.session_state.filters):
+        if not st.session_state.get(f"rm_btn_{i}", False):
+            new_filters.append(filt)
+        else:
+            # сбрасываем флаг, чтобы он не остался на следующий рендер
+            st.session_state[f"rm_btn_{i}"] = False
+    st.session_state.filters = new_filters
+    st.session_state.filter_specs = []   # сброс фильтрации после удаления
+    st.rerun()
+
+# Если нажата кнопка «Применить фильтры» – сохраняем выбранные спецификации
+if applied:
+    specs = []
+    for filt in st.session_state.filters:
+        if filt.get("column") and filt.get("values"):
+            specs.append((filt["column"], filt["values"]))
+    st.session_state.filter_specs = specs
+    st.rerun()
 
 
 # ---------- Настройки визуализации ----------
@@ -174,7 +215,7 @@ with col4:
     drop_missing = st.checkbox("Скрыть пустые", value=True)
 
 
-filtered_df = dataset.filter_dataframe(filter_specs)
+filtered_df = dataset.filter_dataframe(st.session_state.filter_specs)
 st.caption(f"После фильтрации: **{len(filtered_df)}** из **{len(dataset.active_df)}** респондентов")
 
 
@@ -183,8 +224,22 @@ try:
     if chart_type == "Свободные ответы":
         answers = dataset.free_text_answers(filtered_df, primary, drop_missing=drop_missing)
         if answers:
-            df_answers = pd.DataFrame({"№": range(1, len(answers)+1), "Ответ": answers})
-            st.dataframe(df_answers, use_container_width=True, height=600)
+            # HTML-таблица с переносом строк
+            html_table = (
+                "<style>"
+                "  .free-answers-table { width: 100%; border-collapse: collapse; }"
+                "  .free-answers-table td, .free-answers-table th { padding: 6px; border: 1px solid #ddd; vertical-align: top; }"
+                "  .free-answers-table td:nth-child(2) { white-space: pre-wrap; word-break: break-word; max-width: 800px; }"
+                "  .free-answers-table th { background-color: #f0f2f6; }"
+                "</style>"
+                "<table class='free-answers-table'>"
+                "<tr><th>№</th><th>Ответ</th></tr>"
+            )
+            for idx, answer in enumerate(answers, start=1):
+                safe_answer = html_mod.escape(str(answer))
+                html_table += f"<tr><td>{idx}</td><td>{safe_answer}</td></tr>"
+            html_table += "</table>"
+            st.markdown(html_table, unsafe_allow_html=True)
         else:
             st.info("Нет ответов, соответствующих условиям.")
 
@@ -200,7 +255,6 @@ try:
             if drop_missing:
                 cross = cross.drop(index=MISSING_VALUE_TOKEN, errors="ignore")
                 cross = cross.drop(columns=MISSING_VALUE_TOKEN, errors="ignore")
-            # Принудительно удаляем любые дубликаты индексов и колонок
             cross = cross.loc[~cross.index.duplicated()]
             cross = cross.loc[:, ~cross.columns.duplicated()]
             st.dataframe(cross, use_container_width=True)
@@ -240,7 +294,6 @@ try:
             else:
                 if percent:
                     cross = cross.div(cross.sum(axis=1), axis=0).fillna(0) * 100
-                # Превращаем в длинный формат, никаких конфликтов индексов
                 melted = cross.reset_index().melt(id_vars=cross.index.name or "index")
                 melted.columns = [primary, secondary, "value"]
                 fig = px.bar(melted, x=primary, y="value", color=secondary,
@@ -265,34 +318,29 @@ try:
                 if percent:
                     cross = cross.div(cross.sum(axis=1), axis=0).fillna(0) * 100
 
-                # ---------- Обрезаем длинные подписи ----------
-                max_label_len = 25  # символов, после которых обрезаем и добавляем "..."
-
+                # Обрезаем длинные подписи
+                max_label_len = 25
                 def shorten(text: str) -> str:
                     s = str(text)
                     return s if len(s) <= max_label_len else s[:max_label_len-3] + "..."
 
-                y_labels_full = cross.index.astype(str).tolist()
-                x_labels_full = cross.columns.astype(str).tolist()
+                y_full = cross.index.astype(str).tolist()
+                x_full = cross.columns.astype(str).tolist()
+                y_short = [shorten(lbl) for lbl in y_full]
+                x_short = [shorten(lbl) for lbl in x_full]
 
-                y_labels_short = [shorten(lbl) for lbl in y_labels_full]
-                x_labels_short = [shorten(lbl) for lbl in x_labels_full]
+                # Вычисляем адекватные размеры
+                height = max(500, 30 * len(y_full) + 100)
+                width = min(1600, max(600, 50 * len(x_full) + 200))
 
-                # ---------- Рассчитываем размеры ----------
-                # Базовая высота: по 30 пикселей на строку, минимум 500
-                height = max(500, 30 * len(cross.index) + 100)
-                # Ширина: по 50 пикселей на столбец, минимум 600, максимум 1600
-                width = min(1600, max(600, 50 * len(cross.columns) + 200))
-
-                # ---------- Создаём аннотированную тепловую карту ----------
                 fig = go.Figure(data=go.Heatmap(
                     z=cross.values,
-                    x=x_labels_short,
-                    y=y_labels_short,
+                    x=x_short,
+                    y=y_short,
                     texttemplate="%{z:.1f}" if percent else "%{z:d}",
                     textfont={"size": 10},
                     colorscale="Viridis",
-                    customdata=[[f"{row} × {col}" for col in x_labels_full] for row in y_labels_full],
+                    customdata=[[f"{row} × {col}" for col in x_full] for row in y_full],
                     hovertemplate="<b>%{customdata}</b><br>Значение: %{z}<extra></extra>"
                 ))
 
@@ -307,20 +355,10 @@ try:
                     font=dict(size=10),
                     hoverlabel=dict(font_size=12)
                 )
-
-                fig.update_xaxes(
-                    automargin=True,
-                    tickfont=dict(size=9),
-                    title_standoff=15
-                )
-                fig.update_yaxes(
-                    automargin=True,
-                    tickfont=dict(size=9),
-                    title_standoff=20
-                )
+                fig.update_xaxes(automargin=True, tickfont=dict(size=9), title_standoff=15)
+                fig.update_yaxes(automargin=True, tickfont=dict(size=9), title_standoff=20)
 
                 st.plotly_chart(fig, use_container_width=False)
 
 except Exception as e:
-    # Показываем полную трассировку
     st.exception(e)
