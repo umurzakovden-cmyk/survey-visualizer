@@ -224,13 +224,13 @@ try:
     if chart_type == "Свободные ответы":
         answers = dataset.free_text_answers(filtered_df, primary, drop_missing=drop_missing)
         if answers:
-            # HTML-таблица с переносом строк
+            # HTML-таблица с компактным оформлением
             html_table = (
                 "<style>"
-                "  .free-answers-table { width: 100%; border-collapse: collapse; }"
-                "  .free-answers-table td, .free-answers-table th { padding: 6px; border: 1px solid #ddd; vertical-align: top; }"
-                "  .free-answers-table td:nth-child(2) { white-space: pre-wrap; word-break: break-word; max-width: 800px; }"
-                "  .free-answers-table th { background-color: #f0f2f6; }"
+                "  .free-answers-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }"
+                "  .free-answers-table td, .free-answers-table th { padding: 4px 8px; border: 1px solid #ddd; vertical-align: top; }"
+                "  .free-answers-table td:nth-child(2) { white-space: pre-wrap; word-break: break-word; max-width: 800px; line-height: 1.4; }"
+                "  .free-answers-table th { background-color: #f0f2f6; color: #262730; font-weight: 600; }"
                 "</style>"
                 "<table class='free-answers-table'>"
                 "<tr><th>№</th><th>Ответ</th></tr>"
