@@ -313,7 +313,16 @@ class SurveyDataset:
             )
             work = work.explode(col_name)
 
-        table = pd.crosstab(work[row_name], work[col_name])
+        # Сбрасываем индекс, чтобы избежать дубликатов строк после explode
+        work = work.reset_index(drop=True)
+
+        # Строим кросс-таблицу вручную – groupby не боится дубликатов
+        table = (
+            work.groupby([row_name, col_name], observed=False)
+            .size()
+            .unstack(fill_value=0)
+        )
+
         if top_n_rows and len(table.index) > top_n_rows:
             row_order = (
                 table.sum(axis=1)
@@ -329,13 +338,12 @@ class SurveyDataset:
             )
             table = table.loc[:, col_order]
 
-        # Защита от случайных дубликатов (после всех манипуляций)
+        # Подстраховка от возможных дубликатов индекса/колонок
         if table.index.duplicated().any():
             table = table.loc[~table.index.duplicated()]
         if table.columns.duplicated().any():
             table = table.loc[:, ~table.columns.duplicated()]
         return table
-
     @staticmethod
     def _split_multiselect(value: object) -> List[str]:
         text = clean_text(value)
